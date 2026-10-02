@@ -1,6 +1,15 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
+  <script>
+  // コンソールのエラーを画面上に表示するデバッグコード
+  window.onerror = function(msg, url, line) {
+    alert("【エラー発生】\n" + msg + "\n(Line: " + line + ")");
+  };
+  console.error = function(...args) {
+    alert("【console.error】\n" + args.join("\n"));
+  };
+</script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>YouTubeアナリティクス自動解説ツール</title>
