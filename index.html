@@ -162,7 +162,7 @@ ${summaryText}
     `.trim();
 
     // モデル名を標準的な gemini-1.5-flash に修正
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${geminiKey}`;
 
     try {
       const res = await fetch(geminiUrl, {
