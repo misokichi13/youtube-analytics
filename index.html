@@ -12,20 +12,23 @@
   </script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>YouTubeアナリティクス自動解説ツール</title>
+  <title>YouTubeアナリティクス AI自動解説ツール</title>
   <!-- Google Identity Services Library -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <style>
     body { font-family: 'Helvetica Neue', Arial, sans-serif; margin: 20px; background-color: #f8f9fa; color: #333; }
     .container { max-width: 800px; margin: auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-    h1 { font-size: 1.5rem; color: #cc0000; margin-bottom: 20px; }
+    h1 { font-size: 1.5rem; color: #cc0000; margin-bottom: 20px; text-align: center; }
     .config-box { background: #eef2f5; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
     label { font-weight: bold; display: block; margin-top: 10px; }
-    input[type="text"], input[type="password"] { width: 100%; padding: 8px; margin-top: 5px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
-    button { background-color: #cc0000; color: white; border: none; padding: 12px 20px; border-radius: 5px; cursor: pointer; font-size: 1rem; margin-top: 15px; width: 100%; }
+    input[type="text"], input[type="password"], select { width: 100%; padding: 10px; margin-top: 5px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; font-size: 0.95rem; }
+    button { background-color: #cc0000; color: white; border: none; padding: 12px 20px; border-radius: 5px; cursor: pointer; font-size: 1rem; margin-top: 15px; width: 100%; font-weight: bold; }
     button:hover { background-color: #990000; }
+    .mode-box { background: #f0f7ff; padding: 15px; border-radius: 8px; border: 1px solid #cce5ff; margin-bottom: 20px; display: none; }
     .result-box { margin-top: 25px; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px; background: #fafafa; white-space: pre-wrap; line-height: 1.6; }
-    .status { margin-top: 10px; font-weight: bold; color: #0066cc; }
+    .status { margin-top: 10px; font-weight: bold; color: #0066cc; text-align: center; }
+    .radio-group { margin: 10px 0; }
+    .radio-group label { display: inline-block; margin-right: 15px; font-weight: normal; cursor: pointer; }
   </style>
 </head>
 <body>
@@ -39,9 +42,27 @@
 
     <label for="geminiKey">Gemini API Key:</label>
     <input type="password" id="geminiKey" placeholder="AIzaSy...">
+
+    <button id="authBtn" onclick="handleAuth()">YouTubeアカウントにログイン</button>
   </div>
 
-  <button id="authBtn" onclick="handleAuth()">1. YouTubeにログインしてデータ取得＆AI分析</button>
+  <div id="modeSection" class="mode-box">
+    <h3>📊 分析メニューを選択</h3>
+    
+    <div class="radio-group">
+      <label><input type="radio" name="analysisType" value="channel" checked onclick="toggleMode()"> チャンネル全体（直近1ヶ月）</label><br>
+      <label><input type="radio" name="analysisType" value="video" onclick="toggleMode()"> 特定の動画を選択して分析</label>
+    </div>
+
+    <div id="videoSelectContainer" style="display: none; margin-top: 15px;">
+      <label for="videoSelect">分析する動画を選択（直近10本）:</label>
+      <select id="videoSelect">
+        <option value="">動画を読み込み中...</option>
+      </select>
+    </div>
+
+    <button onclick="startAnalysis()" style="background-color: #007bff;">AIで分析を実行</button>
+  </div>
   
   <div id="status" class="status"></div>
 
@@ -50,8 +71,8 @@
 
 <script>
   let accessToken = null;
+  let recentVideos = [];
 
-  // 画面読み込み時に保存されたキーを自動復元
   window.onload = function() {
     if (localStorage.getItem('yt_client_id')) {
       document.getElementById('clientId').value = localStorage.getItem('yt_client_id');
@@ -70,7 +91,6 @@
       return;
     }
 
-    // キーをローカルストレージに記憶（次回入力不要にする）
     localStorage.setItem('yt_client_id', clientId);
     localStorage.setItem('yt_gemini_key', geminiKey);
 
@@ -82,8 +102,9 @@
       callback: async (tokenResponse) => {
         if (tokenResponse && tokenResponse.access_token) {
           accessToken = tokenResponse.access_token;
-          document.getElementById('status').innerText = '認証成功！アナリティクスデータを取得中...';
-          await fetchAnalyticsAndAnalyze(geminiKey);
+          document.getElementById('status').innerText = 'ログイン成功！動画一覧を取得中...';
+          document.getElementById('modeSection').style.display = 'block';
+          await fetchRecentVideos();
         } else {
           document.getElementById('status').innerText = '認証に失敗しました。';
         }
@@ -93,75 +114,203 @@
     client.requestAccessToken();
   }
 
-  async function fetchAnalyticsAndAnalyze(geminiKey) {
+  function toggleMode() {
+    const isVideoMode = document.querySelector('input[name="analysisType"]:checked').value === 'video';
+    document.getElementById('videoSelectContainer').style.display = isVideoMode ? 'block' : 'none';
+  }
+
+  // 直近投稿動画の取得 (YouTube Data API v3)
+  async function fetchRecentVideos() {
+    try {
+      // ログイン中のチャンネル情報を取得
+      const chRes = await fetch('https://www.googleapis.com/youtube/v3/channels?mine=true&part=contentDetails', {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      const chData = await chRes.json();
+      const uploadsPlaylistId = chData.items[0].contentDetails.relatedPlaylists.uploads;
+
+      // 投稿動画リストから直近10本を取得
+      const playlistRes = await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?playlistId=${uploadsPlaylistId}&part=snippet&maxResults=10`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      const playlistData = await playlistRes.json();
+
+      recentVideos = playlistData.items.map(item => ({
+        id: item.snippet.resourceId.videoId,
+        title: item.snippet.title,
+        publishedAt: item.snippet.publishedAt.split('T')[0]
+      }));
+
+      const select = document.getElementById('videoSelect');
+      select.innerHTML = '';
+      recentVideos.forEach(v => {
+        const option = document.createElement('option');
+        option.value = v.id;
+        option.innerText = `[${v.publishedAt}] ${v.title}`;
+        select.appendChild(option);
+      });
+
+      document.getElementById('status').innerText = '準備完了！分析タイプを選んで実行してください。';
+
+    } catch (err) {
+      console.error(err);
+      document.getElementById('status').innerText = '動画一覧の取得に失敗しました。';
+    }
+  }
+
+  async function startAnalysis() {
+    const geminiKey = document.getElementById('geminiKey').value.trim();
+    const type = document.querySelector('input[name="analysisType"]:checked').value;
+
+    document.getElementById('result').style.display = 'none';
+
+    if (type === 'channel') {
+      await fetchChannelAnalytics(geminiKey);
+    } else {
+      await fetchVideoAnalytics(geminiKey);
+    }
+  }
+
+  // ① チャンネル全体（直近1ヶ月・純増計算付き）
+  async function fetchChannelAnalytics(geminiKey) {
+    document.getElementById('status').innerText = 'チャンネル全体データを取得中...';
+
     const endDate = new Date().toISOString().split('T')[0];
     const startDateObj = new Date();
     startDateObj.setDate(startDateObj.getDate() - 30);
     const startDate = startDateObj.toISOString().split('T')[0];
 
-    // APIエンドポイントを v1 から v2 に修正！
-    const url = `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=views,estimatedMinutesWatched,subscribersGained,likes&dimensions=day&sort=day`;
+    const url = `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=views,estimatedMinutesWatched,subscribersGained,subscribersLost,likes&dimensions=day&sort=day`;
 
     try {
       const response = await fetch(url, {
-        headers: { 
-          'Authorization': `Bearer ${accessToken}`
-        }
+        headers: { 'Authorization': `Bearer ${accessToken}` }
       });
       const data = await response.json();
 
       if (!data.rows) {
-        document.getElementById('status').innerText = 'データ取得エラー: データが見つからないか、権限が足りません。';
-        console.error(data);
+        document.getElementById('status').innerText = 'データが見つかりませんでした。';
         return;
       }
 
-      let totalViews = 0;
-      let totalMinutes = 0;
-      let totalSubs = 0;
-      let totalLikes = 0;
+      let totalViews = 0, totalMinutes = 0, totalSubsGained = 0, totalSubsLost = 0, totalLikes = 0;
 
       data.rows.forEach(row => {
         totalViews += row[1];
         totalMinutes += row[2];
-        totalSubs += row[3];
-        totalLikes += row[4];
+        totalSubsGained += row[3];
+        totalSubsLost += row[4];
+        totalLikes += row[5];
       });
 
+      const netSubs = totalSubsGained - totalSubsLost;
+
       const summaryText = `
-【過去30日間のYouTubeパフォーマンスデータ】
+【過去30日間のYouTubeチャンネル全体データ】
 - 総再生回数: ${totalViews.toLocaleString()} 回
 - 総再生時間: ${Math.round(totalMinutes / 60)} 時間 (${totalMinutes.toLocaleString()} 分)
-- 新規チャンネル登録者数: +${totalSubs.toLocaleString()} 人
+- チャンネル登録者純増: ${netSubs >= 0 ? '+' : ''}${netSubs.toLocaleString()} 人 (新規獲得: +${totalSubsGained}, 解除: -${totalSubsLost})
 - 高評価数: ${totalLikes.toLocaleString()} 件
       `.trim();
 
       document.getElementById('status').innerText = 'データ取得完了！Gemini AIが分析中...';
-
-      await analyzeWithGemini(summaryText, geminiKey);
-
-    } catch (err) {
-      console.error(err);
-      document.getElementById('status').innerText = 'エラーが発生しました。コンソールをご確認ください。';
-    }
-  }
-
-  async function analyzeWithGemini(summaryText, geminiKey) {
-    const prompt = `
-あなたはYouTube運用とアナリティクス分析のプロのコンサルタントです。
-以下の過去30日間のYouTubeチャンネルのアナリティクスデータを元に、配信者（YouTubeクリエイター）へ向けた分かりやすく励みになる解説と、今後の改善アドバイスを出力してください。
+      
+      const prompt = `
+あなたはYouTubeコンサルタントです。以下の過去30日間のチャンネル全体データを分析し、クリエイターへ向けた分かりやすい成果評価とアドバイスをお願いします。
 
 【データ】
 ${summaryText}
 
-【出力フォーマット】
-1. 📊 今月の成果まとめ（分かりやすく評価）
-2. 💡 良かった点・強み
-3. 🚀 今後に向けた具体的な改善アクション（2〜3点）
+【フォーマット】
+1. 📊 今月の成果まとめ（評価）
+2. 💡 良かった点・注目ポイント
+3. 🚀 今後に向けた改善アドバイス（2〜3点）
 4. 応援メッセージ
-    `.trim();
+      `.trim();
 
-    // モデル名を標準的な gemini-1.5-flash に修正
+      await analyzeWithGemini(summaryText, prompt, geminiKey);
+
+    } catch (err) {
+      console.error(err);
+      document.getElementById('status').innerText = 'データ取得でエラーが発生しました。';
+    }
+  }
+
+  // ② 特定動画の個別分析
+  async function fetchVideoAnalytics(geminiKey) {
+    const videoId = document.getElementById('videoSelect').value;
+    if (!videoId) {
+      alert('動画を選択してください。');
+      return;
+    }
+
+    const selectedVideo = recentVideos.find(v => v.id === videoId);
+    document.getElementById('status').innerText = `動画「${selectedVideo.title}」のデータを取得中...`;
+
+    const endDate = new Date().toISOString().split('T')[0];
+    const startDate = selectedVideo.publishedAt; // 動画公開日〜本日まで
+
+    const url = `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=views,estimatedMinutesWatched,averageViewDuration,subscribersGained,subscribersLost,likes&filters=video==${videoId}`;
+
+    try {
+      const response = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      const data = await response.json();
+
+      if (!data.rows || data.rows.length === 0) {
+        document.getElementById('status').innerText = '該当動画のアナリティクスデータがまだ十分生成されていません。';
+        return;
+      }
+
+      const row = data.rows[0];
+      const views = row[0];
+      const minutes = row[1];
+      const avgDurationSec = row[2];
+      const subsGained = row[3];
+      const subsLost = row[4];
+      const likes = row[5];
+      const netSubs = subsGained - subsLost;
+
+      const avgMin = Math.floor(avgDurationSec / 60);
+      const avgSec = Math.round(avgDurationSec % 60);
+
+      const summaryText = `
+【特定動画のアナリティクスデータ】
+- 動画タイトル: ${selectedVideo.title}
+- 公開日: ${selectedVideo.publishedAt}
+- 再生回数: ${views.toLocaleString()} 回
+- 総再生時間: ${Math.round(minutes / 60)} 時間 (${minutes.toLocaleString()} 分)
+- 平均再生持続時間: ${avgMin}分${avgSec}秒
+- この動画からの登録者純増: ${netSubs >= 0 ? '+' : ''}${netSubs.toLocaleString()} 人 (新規: +${subsGained}, 解除: -${subsLost})
+- 高評価数: ${likes.toLocaleString()} 件
+      `.trim();
+
+      document.getElementById('status').innerText = 'データ取得完了！Gemini AIが個別分析中...';
+
+      const prompt = `
+あなたはYouTube動画分析のプロです。以下の特定の1本の動画アナリティクスデータを元に、この動画の評価と次回作に生かせる改善ポイントを提示してください。
+
+【データ】
+${summaryText}
+
+【フォーマット】
+1. 🎬 この動画のパフォーマンス評価（視聴の維持や反応について）
+2. ✨ 良かった点・強み
+3. 🎯 次回作に向けた具体的改善アイデア（タイトル/企画/構成など 2〜3点）
+4. 総括メッセージ
+      `.trim();
+
+      await analyzeWithGemini(summaryText, prompt, geminiKey);
+
+    } catch (err) {
+      console.error(err);
+      document.getElementById('status').innerText = '動画データ取得でエラーが発生しました。';
+    }
+  }
+
+  // Gemini API呼び出し処理
+  async function analyzeWithGemini(summaryText, prompt, geminiKey) {
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${geminiKey}`;
 
     try {
