@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YouTubeアナリティクス自動解説ツール</title>
+  <!-- Google Identity Services Library -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <style>
+    body { font-family: 'Helvetica Neue', Arial, sans-serif; margin: 20px; background-color: #f8f9fa; color: #333; }
+    .container { max-width: 800px; margin: auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+    h1 { font-size: 1.5rem; color: #cc0000; margin-bottom: 20px; }
+    .config-box { background: #eef2f5; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+    label { font-weight: bold; display: block; margin-top: 10px; }
+    input[type="text"], input[type="password"] { width: 100%; padding: 8px; margin-top: 5px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+    button { background-color: #cc0000; color: white; border: none; padding: 12px 20px; border-radius: 5px; cursor: pointer; font-size: 1rem; margin-top: 15px; }
+    button:hover { background-color: #990000; }
+    button:disabled { background-color: #ccc; cursor: not-allowed; }
+    .result-box { margin-top: 25px; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px; background: #fafafa; white-space: pre-wrap; line-height: 1.6; }
+    .status { margin-top: 10px; font-weight: bold; color: #0066cc; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h1>YouTube アナリティクス AI自動解説ツール</h1>
+  
+  <div class="config-box">
+    <label for="clientId">OAuth クライアント ID:</label>
+    <input type="text" id="clientId" placeholder="xxxxxxxx.apps.googleusercontent.com">
+
+    <label for="geminiKey">Gemini API Key:</label>
+    <input type="password" id="geminiKey" placeholder="AIzaSy...">
+  </div>
+
+  <button id="authBtn" onclick="handleAuth()">1. YouTubeにログインしてデータ取得＆AI分析</button>
+  
+  <div id="status" class="status"></div>
+
+  <div id="result" class="result-box" style="display:none;"></div>
+</div>
+
+<script>
+  let accessToken = null;
+
+  function handleAuth() {
+    const clientId = document.getElementById('clientId').value.trim();
+    const geminiKey = document.getElementById('geminiKey').value.trim();
+
+    if (!clientId || !geminiKey) {
+      alert('OAuthクライアントIDとGemini APIキーの両方を入力してください。');
+      return;
+    }
+
+    document.getElementById('status').innerText = 'YouTube認証を開始中...';
+
+    const client = google.accounts.oauth2.initTokenClient({
+      client_id: clientId,
+      scope: 'https://www.googleapis.com/auth/yt-analytics.readonly https://www.googleapis.com/auth/youtube.readonly',
+      callback: async (tokenResponse) => {
+        if (tokenResponse && tokenResponse.access_token) {
+          accessToken = tokenResponse.access_token;
+          document.getElementById('status').innerText = '認証成功！アナリティクスデータを取得中...';
+          await fetchAnalyticsAndAnalyze(geminiKey);
+        } else {
+          document.getElementById('status').innerText = '認証に失敗しました。';
+        }
+      },
+    });
+
+    client.requestAccessToken();
+  }
+
+  async function fetchAnalyticsAndAnalyze(geminiKey) {
+    // 過去30日間の日付を計算
+    const endDate = new Date().toISOString().split('T')[0];
+    const startDateObj = new Date();
+    startDateObj.setDate(startDateObj.getDate() - 30);
+    const startDate = startDateObj.toISOString().split('T')[0];
+
+    // YouTube Analytics API 呼び出し (再生回数、視聴時間、チャンネル登録者獲得数、高評価数)
+    const url = `https://youtubeanalytics.googleapis.com/v1/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=views,estimatedMinutesWatched,subscribersGained,likes&dimensions=day&sort=day`;
+
+    try {
+      const response = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      const data = await response.json();
+
+      if (!data.rows) {
+        document.getElementById('status').innerText = 'データ取得エラー: データが見つからないか、権限が足りません。';
+        console.error(data);
+        return;
+      }
+
+      // データの集計
+      let totalViews = 0;
+      let totalMinutes = 0;
+      let totalSubs = 0;
+      let totalLikes = 0;
+
+      data.rows.forEach(row => {
+        totalViews += row[1];
+        totalMinutes += row[2];
+        totalSubs += row[3];
+        totalLikes += row[4];
+      });
+
+      const summaryText = `
+【過去30日間のYouTubeパフォーマンスデータ】
+- 総再生回数: ${totalViews.toLocaleString()} 回
+- 総再生時間: ${Math.round(totalMinutes / 60)} 時間 (${totalMinutes.toLocaleString()} 分)
+- 新規チャンネル登録者数: +${totalSubs.toLocaleString()} 人
+- 高評価数: ${totalLikes.toLocaleString()} 件
+      `.trim();
+
+      document.getElementById('status').innerText = 'データ取得完了！Gemini AIが分析中...';
+
+      // Gemini API による分析依頼
+      await analyzeWithGemini(summaryText, geminiKey);
+
+    } catch (err) {
+      console.error(err);
+      document.getElementById('status').innerText = 'エラーが発生しました。コンソールをご確認ください。';
+    }
+  }
+
+  async function analyzeWithGemini(summaryText, geminiKey) {
+    const prompt = `
+あなたはYouTube運用とアナリティクス分析のプロのコンサルタントです。
+以下の過去30日間のYouTubeチャンネルのアナリティクスデータを元に、配信者（YouTubeクリエイター）へ向けた分かりやすく励みになる解説と、今後の改善アドバイスを出力してください。
+
+【データ】
+${summaryText}
+
+【出力フォーマット】
+1. 📊 今月の成果まとめ（分かりやすく評価）
+2. 💡 良かった点・強み
+3. 🚀 今後に向けた具体的な改善アクション（2〜3点）
+4. 応援メッセージ
+    `.trim();
+
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
+
+    try {
+      const res = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }]
+        })
+      });
+
+      const resData = await res.json();
+      const aiResponse = resData.candidates[0].content.parts[0].text;
+
+      document.getElementById('status').innerText = '分析完了！';
+      const resultDiv = document.getElementById('result');
+      resultDiv.style.display = 'block';
+      resultDiv.innerText = `${summaryText}\n\n====================================\n🤖 AIによる解説・アドバイス\n====================================\n\n${aiResponse}`;
+
+    } catch (err) {
+      console.error(err);
+      document.getElementById('status').innerText = 'Gemini APIの呼び出しに失敗しました。';
+    }
+  }
+</script>
+
+</body>
+</html>
