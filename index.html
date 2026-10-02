@@ -6,9 +6,10 @@
     window.onerror = function(msg, url, line) {
       alert("【エラー発生】\n" + msg + "\n(Line: " + line + ")");
     };
-    console.error = function(...args) {
-      alert("【console.error】\n" + JSON.stringify(args));
-    };
+   console.error = function(...args) {
+  const msg = args.map(a => (a instanceof Error ? a.stack || a.message : JSON.stringify(a, Object.getOwnPropertyNames(a)))).join("\n");
+  alert("【console.error】\n" + msg);
+};
   </script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
