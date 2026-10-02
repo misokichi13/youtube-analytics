@@ -2,14 +2,14 @@
 <html lang="ja">
 <head>
   <script>
-  // コンソールのエラーを画面上に表示するデバッグコード
-  window.onerror = function(msg, url, line) {
-    alert("【エラー発生】\n" + msg + "\n(Line: " + line + ")");
-  };
-  console.error = function(...args) {
-    alert("【console.error】\n" + args.join("\n"));
-  };
-</script>
+    // デバッグ用エラー出力
+    window.onerror = function(msg, url, line) {
+      alert("【エラー発生】\n" + msg + "\n(Line: " + line + ")");
+    };
+    console.error = function(...args) {
+      alert("【console.error】\n" + JSON.stringify(args));
+    };
+  </script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>YouTubeアナリティクス自動解説ツール</title>
@@ -22,9 +22,8 @@
     .config-box { background: #eef2f5; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
     label { font-weight: bold; display: block; margin-top: 10px; }
     input[type="text"], input[type="password"] { width: 100%; padding: 8px; margin-top: 5px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
-    button { background-color: #cc0000; color: white; border: none; padding: 12px 20px; border-radius: 5px; cursor: pointer; font-size: 1rem; margin-top: 15px; }
+    button { background-color: #cc0000; color: white; border: none; padding: 12px 20px; border-radius: 5px; cursor: pointer; font-size: 1rem; margin-top: 15px; width: 100%; }
     button:hover { background-color: #990000; }
-    button:disabled { background-color: #ccc; cursor: not-allowed; }
     .result-box { margin-top: 25px; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px; background: #fafafa; white-space: pre-wrap; line-height: 1.6; }
     .status { margin-top: 10px; font-weight: bold; color: #0066cc; }
   </style>
@@ -52,6 +51,16 @@
 <script>
   let accessToken = null;
 
+  // 画面読み込み時に保存されたキーを自動復元
+  window.onload = function() {
+    if (localStorage.getItem('yt_client_id')) {
+      document.getElementById('clientId').value = localStorage.getItem('yt_client_id');
+    }
+    if (localStorage.getItem('yt_gemini_key')) {
+      document.getElementById('geminiKey').value = localStorage.getItem('yt_gemini_key');
+    }
+  };
+
   function handleAuth() {
     const clientId = document.getElementById('clientId').value.trim();
     const geminiKey = document.getElementById('geminiKey').value.trim();
@@ -60,6 +69,10 @@
       alert('OAuthクライアントIDとGemini APIキーの両方を入力してください。');
       return;
     }
+
+    // キーをローカルストレージに記憶（次回入力不要にする）
+    localStorage.setItem('yt_client_id', clientId);
+    localStorage.setItem('yt_gemini_key', geminiKey);
 
     document.getElementById('status').innerText = 'YouTube認証を開始中...';
 
@@ -81,18 +94,19 @@
   }
 
   async function fetchAnalyticsAndAnalyze(geminiKey) {
-    // 過去30日間の日付を計算
     const endDate = new Date().toISOString().split('T')[0];
     const startDateObj = new Date();
     startDateObj.setDate(startDateObj.getDate() - 30);
     const startDate = startDateObj.toISOString().split('T')[0];
 
-    // YouTube Analytics API 呼び出し (再生回数、視聴時間、チャンネル登録者獲得数、高評価数)
-    const url = `https://youtubeanalytics.googleapis.com/v1/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=views,estimatedMinutesWatched,subscribersGained,likes&dimensions=day&sort=day`;
+    // APIエンドポイントを v1 から v2 に修正！
+    const url = `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=views,estimatedMinutesWatched,subscribersGained,likes&dimensions=day&sort=day`;
 
     try {
       const response = await fetch(url, {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
+        headers: { 
+          'Authorization': `Bearer ${accessToken}`
+        }
       });
       const data = await response.json();
 
@@ -102,7 +116,6 @@
         return;
       }
 
-      // データの集計
       let totalViews = 0;
       let totalMinutes = 0;
       let totalSubs = 0;
@@ -125,7 +138,6 @@
 
       document.getElementById('status').innerText = 'データ取得完了！Gemini AIが分析中...';
 
-      // Gemini API による分析依頼
       await analyzeWithGemini(summaryText, geminiKey);
 
     } catch (err) {
@@ -149,7 +161,8 @@ ${summaryText}
 4. 応援メッセージ
     `.trim();
 
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
+    // モデル名を標準的な gemini-1.5-flash に修正
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
 
     try {
       const res = await fetch(geminiUrl, {
@@ -161,6 +174,12 @@ ${summaryText}
       });
 
       const resData = await res.json();
+      
+      if (!resData.candidates) {
+        alert("Gemini APIエラー:\n" + JSON.stringify(resData));
+        return;
+      }
+
       const aiResponse = resData.candidates[0].content.parts[0].text;
 
       document.getElementById('status').innerText = '分析完了！';
