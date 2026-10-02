@@ -6,10 +6,10 @@
     window.onerror = function(msg, url, line) {
       alert("【エラー発生】\n" + msg + "\n(Line: " + line + ")");
     };
-   console.error = function(...args) {
-  const msg = args.map(a => (a instanceof Error ? a.stack || a.message : JSON.stringify(a, Object.getOwnPropertyNames(a)))).join("\n");
-  alert("【console.error】\n" + msg);
-};
+    console.error = function(...args) {
+      const msg = args.map(a => (a instanceof Error ? a.stack || a.message : JSON.stringify(a, Object.getOwnPropertyNames(a)))).join("\n");
+      alert("【console.error】\n" + msg);
+    };
   </script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -22,14 +22,18 @@
     h1 { font-size: 1.5rem; color: #cc0000; margin-bottom: 20px; text-align: center; }
     .config-box { background: #eef2f5; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
     label { font-weight: bold; display: block; margin-top: 10px; }
-    input[type="text"], input[type="password"], select { width: 100%; padding: 10px; margin-top: 5px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; font-size: 0.95rem; }
+    input[type="text"], input[type="password"], input[type="date"], select { width: 100%; padding: 10px; margin-top: 5px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; font-size: 0.95rem; }
     button { background-color: #cc0000; color: white; border: none; padding: 12px 20px; border-radius: 5px; cursor: pointer; font-size: 1rem; margin-top: 15px; width: 100%; font-weight: bold; }
     button:hover { background-color: #990000; }
+    .btn-secondary { background-color: #6c757d; margin-top: 5px; }
+    .btn-secondary:hover { background-color: #5a6268; }
     .mode-box { background: #f0f7ff; padding: 15px; border-radius: 8px; border: 1px solid #cce5ff; margin-bottom: 20px; display: none; }
     .result-box { margin-top: 25px; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px; background: #fafafa; white-space: pre-wrap; line-height: 1.6; }
     .status { margin-top: 10px; font-weight: bold; color: #0066cc; text-align: center; }
     .radio-group { margin: 10px 0; }
     .radio-group label { display: inline-block; margin-right: 15px; font-weight: normal; cursor: pointer; }
+    .date-filter { display: flex; gap: 10px; margin-top: 10px; }
+    .date-filter div { flex: 1; }
   </style>
 </head>
 <body>
@@ -56,13 +60,26 @@
     </div>
 
     <div id="videoSelectContainer" style="display: none; margin-top: 15px;">
-      <label for="videoSelect">分析する動画を選択（直近10本）:</label>
+      <label>投稿期間で絞り込み:</label>
+      <div class="date-filter">
+        <div>
+          <label style="font-size:0.85rem;">開始日</label>
+          <input type="date" id="startDate">
+        </div>
+        <div>
+          <label style="font-size:0.85rem;">終了日</label>
+          <input type="date" id="endDate">
+        </div>
+      </div>
+      <button class="btn-secondary" onclick="fetchRecentVideos()">指定期間の動画を取得</button>
+
+      <label for="videoSelect" style="margin-top: 15px;">分析する動画を選択:</label>
       <select id="videoSelect">
         <option value="">動画を読み込み中...</option>
       </select>
     </div>
 
-    <button onclick="startAnalysis()" style="background-color: #007bff;">AIで分析を実行</button>
+    <button onclick="startAnalysis()" style="background-color: #007bff; margin-top: 20px;">AIで分析を実行</button>
   </div>
   
   <div id="status" class="status"></div>
@@ -81,6 +98,14 @@
     if (localStorage.getItem('yt_gemini_key')) {
       document.getElementById('geminiKey').value = localStorage.getItem('yt_gemini_key');
     }
+
+    // カレンダーの初期値（過去90日〜今日）
+    const today = new Date();
+    const ninetyDaysAgo = new Date();
+    ninetyDaysAgo.setDate(today.getDate() - 90);
+
+    document.getElementById('endDate').value = today.toISOString().split('T')[0];
+    document.getElementById('startDate').value = ninetyDaysAgo.toISOString().split('T')[0];
   };
 
   function handleAuth() {
@@ -120,43 +145,102 @@
     document.getElementById('videoSelectContainer').style.display = isVideoMode ? 'block' : 'none';
   }
 
-  // 直近投稿動画の取得 (YouTube Data API v3)
+  // 動画一覧の取得 (期間指定対応 + 動画長さ判定用情報取得)
   async function fetchRecentVideos() {
+    const startVal = document.getElementById('startDate').value;
+    const endVal = document.getElementById('endDate').value;
+
+    document.getElementById('status').innerText = '動画一覧を取得中...';
+
     try {
-      // ログイン中のチャンネル情報を取得
       const chRes = await fetch('https://www.googleapis.com/youtube/v3/channels?mine=true&part=contentDetails', {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       });
+
+      if (!chRes.ok) {
+        const errorDetail = await chRes.text();
+        alert(`チャンネル情報取得エラー (${chRes.status}):\n${errorDetail}`);
+        return;
+      }
+
       const chData = await chRes.json();
       const uploadsPlaylistId = chData.items[0].contentDetails.relatedPlaylists.uploads;
 
-      // 投稿動画リストから直近10本を取得
-      const playlistRes = await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?playlistId=${uploadsPlaylistId}&part=snippet&maxResults=10`, {
+      // 投稿動画リストから取得（最大50件）
+      const playlistRes = await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?playlistId=${uploadsPlaylistId}&part=snippet&maxResults=50`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       });
-      const playlistData = await playlistRes.json();
 
-      recentVideos = playlistData.items.map(item => ({
-        id: item.snippet.resourceId.videoId,
-        title: item.snippet.title,
-        publishedAt: item.snippet.publishedAt.split('T')[0]
-      }));
+      if (!playlistRes.ok) {
+        const errorDetail = await playlistRes.text();
+        alert(`動画リスト取得エラー (${playlistRes.status}):\n${errorDetail}`);
+        return;
+      }
+
+      const playlistData = await playlistRes.json();
+      const videoIds = playlistData.items.map(item => item.snippet.resourceId.videoId).join(',');
+
+      // 動画の長さ（duration）を取得するために videos API を呼び出し
+      const videoDetailsRes = await fetch(`https://www.googleapis.com/youtube/v3/videos?id=${videoIds}&part=contentDetails,snippet`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      const videoDetailsData = await videoDetailsRes.json();
+
+      // 期間で絞り込み＆データ整形
+      recentVideos = videoDetailsData.items
+        .map(item => {
+          const pubDate = item.snippet.publishedAt.split('T')[0];
+          const durationISO = item.contentDetails.duration; // ISO 8601 形式（例: PT45S, PT2M10S）
+          const isShort = checkIsShorts(durationISO, item.snippet.title);
+
+          return {
+            id: item.id,
+            title: item.snippet.title,
+            publishedAt: pubDate,
+            isShort: isShort
+          };
+        })
+        .filter(v => v.publishedAt >= startVal && v.publishedAt <= endVal);
 
       const select = document.getElementById('videoSelect');
       select.innerHTML = '';
+
+      if (recentVideos.length === 0) {
+        select.innerHTML = '<option value="">指定期間内に投稿された動画がありません</option>';
+        document.getElementById('status').innerText = '該当する動画が見つかりませんでした。期間を変更してください。';
+        return;
+      }
+
       recentVideos.forEach(v => {
         const option = document.createElement('option');
         option.value = v.id;
-        option.innerText = `[${v.publishedAt}] ${v.title}`;
+        const typeLabel = v.isShort ? '📱[Shorts]' : '🎥[通常]';
+        option.innerText = `${typeLabel} [${v.publishedAt}] ${v.title}`;
         select.appendChild(option);
       });
 
-      document.getElementById('status').innerText = '準備完了！分析タイプを選んで実行してください。';
+      document.getElementById('status').innerText = `準備完了！指定期間内の動画 ${recentVideos.length} 件を取得しました。`;
 
     } catch (err) {
-      console.error(err);
+      alert("通信エラーが発生しました:\n" + err.message);
       document.getElementById('status').innerText = '動画一覧の取得に失敗しました。';
     }
+  }
+
+  // ショート動画判定ロジック
+  function checkIsShorts(durationISO, title) {
+    if (title.toLowerCase().includes('#shorts') || title.includes('ショート')) {
+      return true;
+    }
+    // PT60S 以下の長さを判定
+    let seconds = 0;
+    const match = durationISO.match(/PT(?:(\d+)M)?(?:(\d+)S)?/);
+    if (match) {
+      const minutes = parseInt(match[1] || 0, 10);
+      const secs = parseInt(match[2] || 0, 10);
+      seconds = minutes * 60 + secs;
+    }
+    return seconds > 0 && seconds <= 60;
   }
 
   async function startAnalysis() {
@@ -172,7 +256,7 @@
     }
   }
 
-  // ① チャンネル全体（直近1ヶ月・純増計算付き）
+  // 1. チャンネル全体分析
   async function fetchChannelAnalytics(geminiKey) {
     document.getElementById('status').innerText = 'チャンネル全体データを取得中...';
 
@@ -237,7 +321,7 @@ ${summaryText}
     }
   }
 
-  // ② 特定動画の個別分析
+  // 2. 特定動画の個別分析（ショート動画プロンプト分岐対応）
   async function fetchVideoAnalytics(geminiKey) {
     const videoId = document.getElementById('videoSelect').value;
     if (!videoId) {
@@ -249,7 +333,7 @@ ${summaryText}
     document.getElementById('status').innerText = `動画「${selectedVideo.title}」のデータを取得中...`;
 
     const endDate = new Date().toISOString().split('T')[0];
-    const startDate = selectedVideo.publishedAt; // 動画公開日〜本日まで
+    const startDate = selectedVideo.publishedAt;
 
     const url = `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=views,estimatedMinutesWatched,averageViewDuration,subscribersGained,subscribersLost,likes&filters=video==${videoId}`;
 
@@ -276,20 +360,41 @@ ${summaryText}
       const avgMin = Math.floor(avgDurationSec / 60);
       const avgSec = Math.round(avgDurationSec % 60);
 
+      const videoTypeStr = selectedVideo.isShort ? "ショート動画（1分未満）" : "通常動画（長尺）";
+
       const summaryText = `
 【特定動画のアナリティクスデータ】
 - 動画タイトル: ${selectedVideo.title}
+- 動画タイプ: ${videoTypeStr}
 - 公開日: ${selectedVideo.publishedAt}
 - 再生回数: ${views.toLocaleString()} 回
 - 総再生時間: ${Math.round(minutes / 60)} 時間 (${minutes.toLocaleString()} 分)
-- 平均再生持続時間: ${avgMin}分${avgSec}秒
+- 平均再生持続時間: ${avgMin > 0 ? avgMin + '分' : ''}${avgSec}秒
 - この動画からの登録者純増: ${netSubs >= 0 ? '+' : ''}${netSubs.toLocaleString()} 人 (新規: +${subsGained}, 解除: -${subsLost})
 - 高評価数: ${likes.toLocaleString()} 件
       `.trim();
 
       document.getElementById('status').innerText = 'データ取得完了！Gemini AIが個別分析中...';
 
-      const prompt = `
+      // ショート動画か通常動画かでAIの評価プロンプトを分岐
+      let prompt = "";
+      if (selectedVideo.isShort) {
+        prompt = `
+あなたはYouTubeショート動画分析のプロです。
+以下のデータは【ショート動画（1分未満の縦型動画）】の分析結果です。
+ショート動画特有の評価基準（冒頭1〜3秒の引き、テンポ感、ループ性、スワイプ離脱対策など）を踏まえてアドバイスを行ってください。
+
+【データ】
+${summaryText}
+
+【フォーマット】
+1. 📱 ショート動画としてのパフォーマンス評価（再生の勢いや離脱について）
+2. ✨ 良かった点・視聴者を引き付けた要素
+3. 🎯 次のショート動画に向けた改善アイデア（冒頭フック/構成/テンポ感など 2〜3点）
+4. 応援メッセージ
+        `.trim();
+      } else {
+        prompt = `
 あなたはYouTube動画分析のプロです。以下の特定の1本の動画アナリティクスデータを元に、この動画の評価と次回作に生かせる改善ポイントを提示してください。
 
 【データ】
@@ -300,7 +405,8 @@ ${summaryText}
 2. ✨ 良かった点・強み
 3. 🎯 次回作に向けた具体的改善アイデア（タイトル/企画/構成など 2〜3点）
 4. 総括メッセージ
-      `.trim();
+        `.trim();
+      }
 
       await analyzeWithGemini(summaryText, prompt, geminiKey);
 
@@ -310,7 +416,7 @@ ${summaryText}
     }
   }
 
-  // Gemini API呼び出し処理
+  // Gemini API呼び出し＆503エラー日本語化対応
   async function analyzeWithGemini(summaryText, prompt, geminiKey) {
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${geminiKey}`;
 
@@ -325,9 +431,16 @@ ${summaryText}
 
       const resData = await res.json();
       
-      if (!resData.candidates) {
-        alert("Gemini APIエラー:\n" + JSON.stringify(resData));
-        return;
+      if (resData.error) {
+        if (resData.error.code === 503) {
+          alert("【Gemini AIが混雑中】\n現在AIサーバーへのアクセスが集中しています。\n1〜2分ほど時間をおいてから再度「AIで分析を実行」を押してください。");
+          document.getElementById('status').innerText = 'AIサーバー混雑のため中断しました。時間を置いて再試行してください。';
+          return;
+        } else {
+          alert("Gemini APIエラー:\n" + JSON.stringify(resData.error));
+          document.getElementById('status').innerText = 'Gemini APIエラーが発生しました。';
+          return;
+        }
       }
 
       const aiResponse = resData.candidates[0].content.parts[0].text;
