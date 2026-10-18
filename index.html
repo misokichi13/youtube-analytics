@@ -263,7 +263,7 @@
 
       detailsUrl.search = new URLSearchParams({
         id: videoIds.join(","),
-        part: "contentDetails,snippet"
+        part: "contentDetails,snippet,statistics"
       }).toString();
 
       const detailsData = await fetchJson(detailsUrl.toString(), { headers });
