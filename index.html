@@ -618,6 +618,27 @@ ${summaryText}
         metrics: "views,engagedViews,estimatedMinutesWatched,averageViewDuration,subscribersGained,subscribersLost,likes",
         filters: `video==${videoId}`
       });
+      // 追加調査：再生回数だけを日別に取得する
+      const dailyRows = await fetchAnalyticsReport({
+        ids: "channel==MINE",
+        startDate: selectedVideo.publishedAt,
+        endDate,
+        metrics: "views",
+        dimensions: "day",
+        filters: `video==${videoId}`,
+        sort: "day"
+      });
+
+      const dailyViewsTotal = dailyRows.reduce(
+        (sum, row) => sum + metricNumber(row, "views"),
+        0
+      );
+
+      const dailyViewsText = dailyRows.length
+        ? dailyRows.map(row =>
+            `${row.day}: ${formatNumber(metricNumber(row, "views"))}回`
+          ).join("\\n")
+        : "日別データが返されませんでした";
 
       if (!rows.length) {
         setStatus("該当動画のアナリティクスデータがまだ返されていません。公開直後の場合は時間をおいて再試行してください。");
@@ -645,6 +666,10 @@ ${summaryText}
 - 公開日: ${selectedVideo.publishedAt}
 - 集計終了日: ${endDate}
 - 再生回数（views）: ${formatNumber(views)}回
+- 日別viewsの合計: ${formatNumber(dailyViewsTotal)}回
+- 日別データの期間: ${dailyRows[0]?.day || "なし"} ～ ${dailyRows[dailyRows.length - 1]?.day || "なし"}
+- 日別views内訳:
+${dailyViewsText}
 - 現在の累計再生回数（YouTube Data API）: ${formatNumber(selectedVideo.currentViewCount)}回
 - エンゲージビュー（engagedViews）: ${formatNumber(engagedViews)}回
 - 総再生時間: ${formatWatchTime(minutes)}（${formatNumber(minutes)}分）
