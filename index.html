@@ -829,6 +829,7 @@ ${summaryText}
       }
 
       const finishReason = candidate?.finishReason || "（値なし）";
+      console.log("Geminiトークン使用量:", data.usageMetadata);
       $("result").style.display = "block";
       $("aiResult").textContent = aiResponse;
       $("rawData").textContent = summaryText;
