@@ -605,7 +605,7 @@ ${liveText}
 - データが空、欠損、または区分間で不整合の場合は、そのことを指摘する。
 
 【回答の構成：短く、行動につながる内容にする】
-次の4項目だけを出力し、全体を日本語で300～500字程度に収めてください。
+次の4項目だけを出力し、全体を日本語で300～500字程度に収めてください。各項目は見出しと2～3文で説明し、合計250字未満にはしないでください。
 1. 要約：今回もっとも重要な特徴を1～2文
 2. 注目点：データから言えることを最大2点
 3. 注意点：解釈を誤りやすい点を1点
@@ -743,7 +743,7 @@ ${dailyViewsText}
 - 無理に褒めず、実行しやすい改善策を最大3点提案する。
 
 【回答の構成：短く、行動につながる内容にする】
-次の4項目だけを出力し、全体を日本語で250～400字程度に収めてください。
+次の4項目だけを出力し、全体を日本語で250～400字程度に収めてください。各項目は見出しと2～3文で説明し、合計220字未満にはしないでください。
 1. 要約：この動画で最も注目すべき特徴を1～2文
 2. 根拠：数値から言えることを最大2点
 3. 注意点：断定できないことを1点
@@ -805,7 +805,8 @@ ${summaryText}
         throw new Error(`Gemini APIエラー (${code}): ${message}`);
       }
 
-      const aiResponse = data.candidates?.[0]?.content?.parts
+      const candidate = data.candidates?.[0];
+      const aiResponse = candidate?.content?.parts
         ?.map(part => part.text || "")
         .join("\n")
         .trim();
@@ -816,7 +817,12 @@ ${summaryText}
         throw new Error(`Geminiから分析文を取得できませんでした。${reason}`);
       }
 
-      $("status").innerText = "分析完了。";
+      const finishReason = candidate?.finishReason || "";
+      if (finishReason === "MAX_TOKENS") {
+        $("status").innerText = "分析文が出力上限で途中終了した可能性があります。下の解説が不自然に切れている場合は、もう一度分析してください。";
+      } else {
+        $("status").innerText = "分析完了。";
+      }
       $("result").style.display = "block";
       $("aiResult").textContent = aiResponse;
       $("rawData").textContent = summaryText;
