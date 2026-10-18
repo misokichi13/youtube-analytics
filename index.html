@@ -282,6 +282,7 @@
             id: item.id,
             title: item.snippet?.title || "(タイトル不明)",
             publishedAt,
+            currentViewCount: Number(item.statistics?.viewCount || 0),
             durationSeconds,
             isShortEstimate: estimateShort(
               item.snippet?.title || "",
