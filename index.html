@@ -614,8 +614,7 @@ ${summaryText}
         ids: "channel==MINE",
         startDate: selectedVideo.publishedAt,
         endDate,
-        metrics:
-          "views,estimatedMinutesWatched,averageViewDuration,subscribersGained,subscribersLost,likes",
+        metrics: "views,engagedViews,estimatedMinutesWatched,averageViewDuration,subscribersGained,subscribersLost,likes",
         filters: `video==${videoId}`
       });
 
@@ -624,9 +623,10 @@ ${summaryText}
         return;
       }
 
-      const row = rows[0];
-      const views = metricNumber(row, "views");
-      const minutes = metricNumber(row, "estimatedMinutesWatched");
+     const row = rows[0];
+    const views = metricNumber(row, "views");
+    const engagedViews = metricNumber(row, "engagedViews");
+    const minutes = metricNumber(row, "estimatedMinutesWatched");
       const average = metricNumber(row, "averageViewDuration");
       const gained = metricNumber(row, "subscribersGained");
       const lost = metricNumber(row, "subscribersLost");
@@ -643,7 +643,8 @@ ${summaryText}
 - 動画タイプ: ${videoTypeStr}
 - 公開日: ${selectedVideo.publishedAt}
 - 集計終了日: ${endDate}
-- 再生回数: ${formatNumber(views)}回
+- 再生回数（views）: ${formatNumber(views)}回
+- エンゲージビュー（engagedViews）: ${formatNumber(engagedViews)}回
 - 総再生時間: ${formatWatchTime(minutes)}（${formatNumber(minutes)}分）
 - 平均視聴時間: ${formatDuration(average)}
 - この動画からの登録者純増: ${netSubs >= 0 ? "+" : ""}${formatNumber(netSubs)}人（獲得 ${formatNumber(gained)}人／解除 ${formatNumber(lost)}人）
