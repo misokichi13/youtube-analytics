@@ -647,7 +647,7 @@ ${summaryText}
       // 追加調査：再生回数だけを日別に取得する
       const dailyRows = await fetchAnalyticsReport({
         ids: "channel==MINE",
-                startDate: selectedVideo.publishedAt,
+                startDate: selectedVideo.analyticsStartDate,
         endDate,
         metrics: "views",
         dimensions: "day",
