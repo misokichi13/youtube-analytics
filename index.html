@@ -126,6 +126,12 @@
 
     return `${values.year}-${values.month}-${values.day}`;
   }
+  // YYYY-MM-DD形式の日付に日数を加減する
+function addDaysToDateString(dateString, days) {
+  const date = new Date(`${dateString}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
   
 
   window.addEventListener("load", () => {
@@ -452,10 +458,15 @@
     setStatus("チャンネル全体のデータを取得中...");
 
     try {
-      const endDate = localDateString(new Date());
-      const startDateObj = new Date();
-      startDateObj.setDate(startDateObj.getDate() - 30);
-      const startDate = localDateString(startDateObj);
+    // 太平洋時間で今日の日付を取得
+const todayPacific = dateInTimeZone(
+  new Date().toISOString(),
+  "America/Los_Angeles"
+);
+
+  // 今日を除き、完了した30日間を集計する
+const endDate = addDaysToDateString(todayPacific, -1);
+const startDate = addDaysToDateString(endDate, -29);
 
       // ① チャンネル全体の指標
       const totalRows = await fetchAnalyticsReport({
@@ -635,7 +646,12 @@ ${summaryText}
     setStatus(`動画「${selectedVideo.title}」のデータを取得中...`);
 
     try {
-      const endDate = localDateString(new Date());
+      // 太平洋時間で昨日までを集計対象にする
+  const todayPacific = dateInTimeZone(
+    new Date().toISOString(),
+    "America/Los_Angeles"
+);
+  const endDate = addDaysToDateString(todayPacific, -1);
 
       const rows = await fetchAnalyticsReport({
         ids: "channel==MINE",
