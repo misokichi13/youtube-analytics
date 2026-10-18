@@ -307,6 +307,7 @@
             id: item.id,
             title: item.snippet?.title || "(タイトル不明)",
             publishedAt,
+            analyticsStartDate,
             currentViewCount: Number(item.statistics?.viewCount || 0),
             durationSeconds,
             isShortEstimate: estimateShort(
