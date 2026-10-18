@@ -653,6 +653,13 @@ ${summaryText}
 );
   const endDate = addDaysToDateString(todayPacific, -1);
 
+ // 集計開始日が終了日より後なら、APIを呼び出さない
+  if (selectedVideo.analyticsStartDate > endDate) {
+    setStatus(
+    "この動画は集計対象期間がまだ始まっていません。太平洋時間で翌日以降に再試行してください。"
+  );
+  return;
+  }
       const rows = await fetchAnalyticsReport({
         ids: "channel==MINE",
         startDate: selectedVideo.analyticsStartDate,
