@@ -95,6 +95,11 @@
       <summary style="cursor:pointer;font-weight:bold;">取得した数値データを確認</summary>
       <pre id="rawData" style="white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;"></pre>
     </details>
+    <details style="margin-top:12px;">
+      <summary style="cursor:pointer;font-weight:bold;">Gemini応答の診断情報（原因調査用）</summary>
+      <p class="note">ここにはGeminiから受け取った文章と終了理由を表示します。APIキーは表示しません。</p>
+      <pre id="aiDiagnostics" style="white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;"></pre>
+    </details>
   </div>
 </div>
 
@@ -817,15 +822,37 @@ ${summaryText}
         throw new Error(`Geminiから分析文を取得できませんでした。${reason}`);
       }
 
-      const finishReason = candidate?.finishReason || "";
-      if (finishReason === "MAX_TOKENS") {
-        $("status").innerText = "分析文が出力上限で途中終了した可能性があります。下の解説が不自然に切れている場合は、もう一度分析してください。";
-      } else {
-        $("status").innerText = "分析完了。";
-      }
+      const finishReason = candidate?.finishReason || "（値なし）";
       $("result").style.display = "block";
       $("aiResult").textContent = aiResponse;
       $("rawData").textContent = summaryText;
+
+      // 受信した文章量・終了理由・実際の表示領域を診断用に記録する
+      const aiElement = $("aiResult");
+      const style = window.getComputedStyle(aiElement);
+      const diagnostics = [
+        `受信した文章の文字数: ${aiResponse.length}`,
+        `候補（candidate）の数: ${data.candidates?.length ?? 0}`,
+        `文章パーツ数: ${candidate?.content?.parts?.length ?? 0}`,
+        `終了理由 finishReason: ${finishReason}`,
+        `プロンプトのブロック理由: ${data.promptFeedback?.blockReason || "なし"}`,
+        `表示要素の高さ clientHeight: ${aiElement.clientHeight}px`,
+        `表示要素の内容全体の高さ scrollHeight: ${aiElement.scrollHeight}px`,
+        `表示要素の overflow-y: ${style.overflowY}`,
+        "",
+        "===== Geminiから受信した文章（表示内容との比較用） =====",
+        aiResponse,
+        "",
+        "===== Gemini応答の候補データ（テキスト・終了理由など） =====",
+        JSON.stringify(candidate || data.promptFeedback || data, null, 2)
+      ];
+      $("aiDiagnostics").textContent = diagnostics.join("\n");
+
+      if (finishReason === "MAX_TOKENS") {
+        $("status").innerText = "分析は終了しましたが、Geminiの出力上限で途中終了した可能性があります。診断情報を確認してください。";
+      } else {
+        $("status").innerText = "分析完了。診断情報で受信文字数と終了理由を確認できます。";
+      }
 
     } catch (error) {
       console.error(error);
