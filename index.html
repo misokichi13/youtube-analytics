@@ -686,7 +686,7 @@ ${summaryText}
       const dailyViewsText = dailyRows.length
         ? dailyRows.map(row =>
             `${row.day}: ${formatNumber(metricNumber(row, "views"))}回`
-          ).join("\\n")
+           ).join("\n")
         : "日別データが返されませんでした";
 
       if (!rows.length) {
