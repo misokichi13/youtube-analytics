@@ -639,7 +639,7 @@ ${summaryText}
 
       const rows = await fetchAnalyticsReport({
         ids: "channel==MINE",
-        startDate: selectedVideo.publishedAt,
+        startDate: selectedVideo.analyticsStartDate,
         endDate,
         metrics: "views,engagedViews,estimatedMinutesWatched,averageViewDuration,subscribersGained,subscribersLost,likes",
         filters: `video==${videoId}`
