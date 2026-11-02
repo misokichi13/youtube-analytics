@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>YouTubeアナリティクス データ取得（代行版）</title>
+  <title>YouTubeアナリティクス データ取得（代行版 v2.1）</title>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <style>
     body { font-family: Arial, sans-serif; margin: 20px; background: #f8f9fa; color: #333; }
@@ -34,7 +34,7 @@
 </head>
 <body>
 <div class="container">
-  <h1>YouTube アナリティクス データ取得（代行版）</h1>
+  <h1>YouTube アナリティクス データ取得（代行版 v2.1）</h1>
   <p class="note">このページはデータ取得専用です。AI分析は行いません。取得結果はJSON形式で表示されるので、そのままコピーして渡してください。</p>
 
   <div class="config-box">
@@ -168,7 +168,8 @@
     });
     tokenClient.requestAccessToken();
   }
-    function toggleMode() {
+
+  function toggleMode() {
     const selected = document.querySelector('input[name="analysisType"]:checked');
     $("videoSelectContainer").style.display =
       selected?.value === "video" ? "block" : "none";
@@ -364,7 +365,8 @@
       setBusy(false);
     }
   }
-    function showResult(payload, humanText) {
+
+  function showResult(payload, humanText) {
     $("humanSummary").textContent = humanText;
     $("exportJson").textContent = JSON.stringify(payload, null, 2);
     $("result").style.display = "block";
@@ -410,10 +412,21 @@
       const startDate = video.analyticsStartDate;
       const base = { ids: "channel==MINE", startDate, endDate, filters: `video==${videoId}` };
 
-      const totalRows = await tryReport(errors, "totals", {
-        ...base,
-        metrics: "views,engagedViews,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,likes,comments,shares,subscribersGained,subscribersLost"
-      });
+      // 合算レポートはメトリクスの組み合わせでAPI側エラーになることがあるため、
+      // フル→中核→最小の順にフォールバックする。全滅した時だけエラーを記録する。
+      const totalsMetricsLevels = [
+        "views,engagedViews,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,likes,comments,shares,subscribersGained,subscribersLost",
+        "views,estimatedMinutesWatched,averageViewDuration,likes,comments,shares,subscribersGained,subscribersLost",
+        "views,estimatedMinutesWatched,averageViewDuration"
+      ];
+      const totalsAttempts = [];
+      let totalRows = null;
+      let totalsLevel = 0;
+      for (let i = 0; i < totalsMetricsLevels.length && !totalRows; i++) {
+        totalRows = await tryReport(totalsAttempts, "totals", { ...base, metrics: totalsMetricsLevels[i] });
+        if (totalRows) totalsLevel = i + 1;
+      }
+      if (!totalRows) errors.push(...totalsAttempts);
       const dailyRows = await tryReport(errors, "daily", {
         ...base,
         metrics: "views,estimatedMinutesWatched",
@@ -465,6 +478,7 @@
       totals.subscribersNet = totals.subscribersGained - totals.subscribersLost;
       totals.engagedRatio = totals.views > 0
         ? round3(totals.engagedViews / totals.views) : null;
+      totals.fetchLevel = totalsLevel;
 
       // 日別を暦日でそろえ、欠けた日は0として特徴量を計算する
       const ageDays = Math.min(daysBetween(startDate, endDate) + 1, 400);
@@ -536,7 +550,8 @@
           minutes: metricNumber(row, "estimatedMinutesWatched")
         };
       });
-            const subsTotal = (subscribedRows || []).reduce((s, r) => s + metricNumber(r, "views"), 0);
+
+      const subsTotal = (subscribedRows || []).reduce((s, r) => s + metricNumber(r, "views"), 0);
       const subscribed = (subscribedRows || []).map(row => {
         const views = metricNumber(row, "views");
         return {
@@ -586,7 +601,7 @@
         errors
       };
 
-      const human = [
+      const humanLines = [
         `タイトル: ${video.title}`,
         `公開日: ${video.publishedAt} / 集計終了: ${endDate}（公開後 ${features.ageDays} 日）`,
         `再生回数: ${totals.views} / エンゲージビュー: ${totals.engagedViews}（比率 ${totals.engagedRatio ?? "-"}）`,
@@ -594,7 +609,11 @@
         `初速: 初日 ${features.viewsFirstDay} / 7日 ${features.viewsFirst7Days} / 直近7日 ${features.viewsLast7Days}`,
         `登録者純増: ${totals.subscribersNet} / 高評価: ${totals.likes} / コメント: ${totals.comments}`,
         errors.length ? `取得できなかった項目: ${errors.map(e => e.report).join(", ")}` : "全項目を取得できました。"
-      ].join("\n");
+      ];
+      if (totalsLevel > 1) {
+        humanLines.push(`※合算レポートはフォールバック（レベル${totalsLevel}）で取得しました。一部項目が0のままの場合があります。`);
+      }
+      const human = humanLines.join("\n");
 
       showResult(payload, human);
       setStatus("データ取得が完了しました。JSONをコピーして渡してください。");
